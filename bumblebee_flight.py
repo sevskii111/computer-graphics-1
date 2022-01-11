@@ -36,6 +36,7 @@ class Shading(Enum):
     LAMBERT = 1
     GOURAUD = 2
     PHONG = 3
+    PHONG_RAYS = 4
 
 
 SCREEN_WIDTH = 1024
@@ -400,7 +401,7 @@ def draw_lumbert(draw_buffer, z_buffer, triangle, color):
                 z_buffer[_x, _y] = _z
 
 @jit(nopython=True)
-def draw_gaurand(draw_buffer, z_buffer, triangle, colors):
+def draw_gouraud(draw_buffer, z_buffer, triangle, colors):
     XY = get_triangle_points(triangle[0, 0], triangle[0,1], triangle[1,0], triangle[1,1], triangle[2,0], triangle[2,1])
     if XY is not None and len(XY[0]) > 0:
         X, Y = XY
@@ -677,7 +678,7 @@ class Simulation():
 
             
             for obj_ind, obj in enumerate(self._objects):
-                triangles = obj.draw_cube(point_lights)#obj.draw_cube(point_lights, triangles=self.current_shading != Shading.PHONG)
+                triangles = obj.draw_cube(point_lights, triangles=self.current_shading != Shading.PHONG_RAYS)
 
                 t_vertices = obj.transform_vertices()
                 centers, normals = obj.get_c_and_norm(
@@ -692,12 +693,17 @@ class Simulation():
                     elif self.current_shading == Shading.LAMBERT:
                         draw_lumbert(draw_buffer, z_buffer, triangle, obj.lambert_colors[face_ind])
                     elif self.current_shading == Shading.GOURAUD:
-                        draw_gaurand(draw_buffer, z_buffer, triangle, obj.gouraud_colors)
+                        draw_gouraud(draw_buffer, z_buffer, triangle, obj.gouraud_colors)
                     elif self.current_shading == Shading.PHONG:
                         lights = np.zeros((len(point_lights), 6))
                         for i, light in enumerate(point_lights):
                             lights[i] = [*light.point.to_arr(), *light.color]
                         draw_phong2(draw_buffer, z_buffer, triangle, normals[face_ind], lights)
+                    elif self.current_shading == Shading.PHONG_RAYS:
+                        lights = np.zeros((len(point_lights), 6))
+                        for i, light in enumerate(point_lights):
+                            lights[i] = [*light.point.to_arr(), *light.color]
+                        draw_phong(draw_buffer, z_buffer, triangle, normals[face_ind], normals[np.arange(len(normals)) != face_ind], lights)
                         
 
                 if keys[pygame.K_r]:
@@ -713,9 +719,11 @@ class Simulation():
                 elif keys[pygame.K_4]:
                     self.current_shading = Shading.PHONG
                 elif keys[pygame.K_5]:
+                    self.current_shading = Shading.PHONG_RAYS
+                elif keys[pygame.K_6]:
                     self.phong_coeff += 0.01
                     print(self.phong_coeff)
-                elif keys[pygame.K_6]:
+                elif keys[pygame.K_7]:
                     self.phong_coeff -= 0.01
                     print(self.phong_coeff)
 
