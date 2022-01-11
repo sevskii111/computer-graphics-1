@@ -1,0 +1,1 @@
+alias bpython=/opt/homebrew/Caskroom/miniforge/base/envs/bublebee/bin/python3
