@@ -321,7 +321,7 @@ def is_inside_triangle(x: np.number, y: np.number, x1: np.number, y1: np.number,
     A1 = area(x, y, x2, y2, x3, y3)
     A2 = area(x1, y1, x, y, x3, y3)
     A3 = area(x1, y1, x2, y2, x, y)
-    return (A1 + A2 + A3) - A < 0.00001
+    return (A1 + A2 + A3) - A < 0.001
 
 @jit(nopython=True)
 def get_triangle_points(x1: np.number, y1: np.number, x2: np.number, y2:np.number, x3: np.number, y3: np.number):
@@ -490,29 +490,36 @@ def draw_phong(draw_buffer, z_buffer, triangle, plane, other_planes, lights, pho
         xyz[1] = ys
         xyz[2] = zs
         l = light_pos - xyz.T
-        #print(l.shape)
-        #print(np.linalg.norm(l, axis=1))
-        #l_norm = np.linalg.norm(l, axis=1)
+
+        r = 2 * -plane[:3] - l
+
         l_norm = np.sqrt(np.sum(l ** 2, axis=1))
-        #print(l_norm - l_norm_alt)
-        #print(l.shape, l_norm.shape)
-        #l /= l_norm.T
         l[:, 0] /= l_norm
         l[:, 1] /= l_norm
         l[:, 2] /= l_norm
-        #l = l / np.linalg.norm(l, axis=1)#np.linalg.norm(l)
-        # r = 2 * -plane[:3] - l
-        # r = r / np.linalg.norm(r)
-        # specular_coef = -xyz
-        # specular_coef = specular_coef / np.linalg.norm(specular_coef)
+
         d = np.dot(-plane[:3], l.T)
         o = np.outer(d, light[3:])
-        diffuse = diffuse + np.clip(o, 0, 1) * 255
 
-        # wee_wee_1 = r * specular_coef
-        # specular = specular + \
-        #     np.power(np.maximum(wee_wee_1, 0) * 10000,
-        #              1) * 255
+        diffuse = diffuse + np.clip(o * 0.5, 0, 1) * 255
+
+        r_norm = np.sqrt(np.sum(r ** 2, axis=1))
+        r[:, 0] /= r_norm
+        r[:, 1] /= r_norm
+        r[:, 2] /= r_norm
+
+        specular_coef = -xyz.T
+        specular_coef_norm = np.sqrt(np.sum(r ** 2, axis=1))
+        specular_coef[:, 0] /= specular_coef_norm
+        specular_coef[:, 1] /= specular_coef_norm
+        specular_coef[:, 2] /= specular_coef_norm
+
+        #print(r, specular_coef)
+
+        wee_wee_1 = r * specular_coef
+
+        #print(wee_wee_1)
+        #specular = specular + np.clip(np.power(np.maximum(wee_wee_1, 0), 1) * 0.1, 0, 1) * 255 
 
     xs = ((X + (W * 0.5)) * SCREEN_WIDTH / W).astype(np.int32)
     ys = ((Y + (H * 0.5)) * SCREEN_HEIGHT / H).astype(np.int32)
@@ -527,6 +534,54 @@ def draw_phong(draw_buffer, z_buffer, triangle, plane, other_planes, lights, pho
             z_buffer[_x, _y] = _z
 
     #draw_buffer[SCREEN_WIDTH - xs, SCREEN_HEIGHT - ys] = diffuse
+
+@jit(nopython=True)
+def draw_phong2(draw_buffer, z_buffer, triangle, plane, lights):
+    XY = get_triangle_points(triangle[0, 0], triangle[0,1], triangle[1,0], triangle[1,1], triangle[2,0], triangle[2,1])
+    if XY is not None and len(XY[0]) > 0:
+        X, Y = XY
+        z_key_points = []
+        for x, y, z, _v in triangle:
+            z_key_points.append(
+                (x, y, [z]))
+
+        Z = bilinear_interpolation(X, Y, *z_key_points[0], *z_key_points[1], *z_key_points[2])[0]
+
+        xs = X
+        ys = Y
+
+        factor = FOV / (Z + VIEWER_DISTANCE)
+        X = (X - SCREEN_WIDTH / 2) / factor
+        Y = (Y - SCREEN_HEIGHT / 2) / factor
+        
+
+        diffuse = np.zeros((len(X), 3))
+        for light in lights:
+            light_pos = light[:3]
+            xyz = np.zeros((3,len(xs)))
+            xyz[0] = X
+            xyz[1] = Y
+            xyz[2] = Z
+            l = light_pos - xyz.T
+
+            l_norm = np.sqrt(np.sum(l ** 2, axis=1))
+            l[:, 0] /= l_norm
+            l[:, 1] /= l_norm
+            l[:, 2] /= l_norm
+
+            d = np.dot(plane[:3], l.T)
+            o = np.outer(d, light[3:])
+
+            diffuse = diffuse + np.clip(o * 0.5, 0, 1) * 255
+
+        for _x, _y, _z, _k in zip(xs, ys, Z, diffuse):
+            #print(_x, _y, _z, _k)
+            if z_buffer[_x, _y] > _z:
+                draw_buffer[_x, _y] = _k
+                z_buffer[_x, _y] = _z
+        #draw_buffer[xs.astype(int), ys.astype(int)] = diffuse
+
+
 
 class Simulation():
     def __init__(self, screen_width, screen_height, objects=[]):
@@ -564,7 +619,7 @@ class Simulation():
 
     def run(self):
         self.add_cube_btn()
-        a = 1
+        a = 2
         d = 1
         point_lights = [
             # PointLight(Point3D(1000, 1000, 0), [0, 1, 0]),
@@ -593,11 +648,12 @@ class Simulation():
         # cube.translate_cube(a / 2, -np.sqrt(3) / 2 * a, d)
         # self._objects.append(cube)
 
-        # for i in range(-1, 2):
-        #     for j in range(-1, 2):
-        #         cube = Cube()
-        #         cube.translate_cube(i * 2, j * 2, 5 )
-        #         self._objects.append(cube)
+        SIZE = 2
+        for i in range(-SIZE, SIZE + 1):
+            for j in range(-SIZE, SIZE + 1):
+                cube = Cube()
+                cube.translate_cube(i * 2, j * 2, 5)
+                self._objects.append(cube)
         
 
         while True:
@@ -621,7 +677,7 @@ class Simulation():
 
             
             for obj_ind, obj in enumerate(self._objects):
-                triangles = obj.draw_cube(point_lights, triangles=self.current_shading != Shading.PHONG)
+                triangles = obj.draw_cube(point_lights)#obj.draw_cube(point_lights, triangles=self.current_shading != Shading.PHONG)
 
                 t_vertices = obj.transform_vertices()
                 centers, normals = obj.get_c_and_norm(
@@ -630,7 +686,7 @@ class Simulation():
                 for polygon in triangles:
                     triangle = polygon[0]
                     face_ind = polygon[1]
-                    draw_wireframe(draw_buffer, triangle)
+                    #draw_wireframe(draw_buffer, triangle)
                     if self.current_shading == Shading.WIREFRAME:
                         draw_wireframe(draw_buffer, triangle)
                     elif self.current_shading == Shading.LAMBERT:
@@ -641,133 +697,8 @@ class Simulation():
                         lights = np.zeros((len(point_lights), 6))
                         for i, light in enumerate(point_lights):
                             lights[i] = [*light.point.to_arr(), *light.color]
-                        draw_phong(draw_buffer, z_buffer, triangle, normals[face_ind], np.vstack([normals[:face_ind], normals[face_ind+1:]]), lights)
+                        draw_phong2(draw_buffer, z_buffer, triangle, normals[face_ind], lights)
                         
-                        # plane = normals[face_ind]
-
-                        # #1 / 1.2246832243
-
-                        # ray_origin = np.array([0, 0, self.phong_coeff + self.phong_coeff * 10])
-                        # # range(0, SCREEN_WIDTH, 10):
-
-                        # SCREEN_RATIO = SCREEN_WIDTH / SCREEN_HEIGHT
-                        # H, W = 1 / SCREEN_RATIO, 1   # SCREEN_HEIGHT / FOV / 2, SCREEN_WIDTH / FOV / 2
-
-                        # xxx = np.linspace(-W / 2, W / 2, SCREEN_WIDTH)
-                        # yyy = np.linspace(-H / 2, H / 2, SCREEN_HEIGHT)
-
-                        # X = np.repeat(xxx, len(yyy))
-                        # Y = np.array([*yyy] * len(xxx))
-
-                        # x1, y1, z1 = ray_origin
-                        # x2 = X
-                        # y2 = Y
-                        # z2 = self.phong_coeff * 10
-
-                        # a, b, c, d = plane
-
-                        # ts = (-d - a * x1 - b * y1 - c * z1) / (a * (x2 - x1) + b * (y2 - y1) + c * (z2 - z1))
-
-                        # xs = ts * (x2 - x1) + x1
-                        # ys = ts * (y2 - y1) + y1
-                        # zs = ts * (z2 - z1) + z1
-
-                        # #print(xs[0], ys[0], zs[0], zs[0])
-                        # flags = ts > 0
-                        # for normal_ind, plane1 in enumerate(normals):
-                        #     if normal_ind == face_ind: continue
-                        #     a1, b1, c1, d1 = plane1
-
-                            
-                        #     #print(a1, b1, c1, d1)
-                        #     flags &= (
-                        #         (a1 * xs + b1 * ys + c1 * zs + d1) > 0.01)
-
-                        # # print(np.max(flags))
-                        # xs = xs[flags]
-                        # ys = ys[flags]
-                        # zs = zs[flags]
-
-                        # if (len(xs) == 0):
-                        #     continue
-
-                        # diffuse = np.zeros((len(xs), 3))
-                        # specular = np.zeros((len(xs), 3))
-                        # for light in point_lights:
-                        #     light_pos = -light.point.to_arr()
-                        #     l = (light_pos - np.array([xs, ys, zs]).T)
-                        #     l = l / np.linalg.norm(l.T, axis=1)
-                        #     r = 2 * -plane[:3] - l
-                        #     r = r / np.linalg.norm(r.T, axis=1)
-                        #     specular_coef = -np.array([xs, ys, zs]).T
-                        #     specular_coef = specular_coef / \
-                        #         np.linalg.norm(specular_coef.T, axis=1)
-                        #     diffuse = diffuse + \
-                        #         np.clip(np.outer(np.dot(-plane[:3], l.T), np.array(
-                        #             light.color) * 10), 0, 1) * 255
-
-                        #     # wee_wee_1 = r * specular_coef
-                        #     # specular = specular + \
-                        #     #     np.power(np.maximum(wee_wee_1, 0) * 10000,
-                        #     #              1) * 255
-
-                        # xs = ((X + (W * 0.5)) * SCREEN_WIDTH / W).astype(int) - 1
-                        # ys = ((Y + (H * 0.5)) * SCREEN_HEIGHT / H).astype(int) - 1
-
-                        # xs = xs[flags]
-                        # ys = ys[flags]
-                        
-
-
-                        # draw_buffer[SCREEN_WIDTH - xs, SCREEN_HEIGHT - ys] = diffuse
-
-                        # diffuse = np.zeros((len(xs), 3))
-                        # specular = np.zeros((len(xs), 3))
-                        # for light in point_lights:
-                        #     light_pos = light.point.to_arr()
-                        #     light_pos[1] = -light_pos[1]
-                        #     l = (light_pos - np.array([xs, ys, zs]).T)
-                        #     l = l / np.linalg.norm(l.T, axis=1)
-                        #     r = 2 * plane[:3] - l
-                        #     r = r / np.linalg.norm(r.T, axis=1)
-                        #     specular_coef = -np.array([xs, ys, zs]).T
-                        #     specular_coef = specular_coef / \
-                        #         np.linalg.norm(specular_coef.T, axis=1)
-                        #     diffuse = diffuse + \
-                        #         np.clip(np.outer(np.dot(plane[:3], l.T), np.array(
-                        #             light.color)), 0, 1) * 255 * 10
-
-                        #     wee_wee_1 = r * specular_coef
-                        #     specular = specular + \
-                        #         np.power(np.maximum(wee_wee_1, 0),
-                        #                  1) * 255 * 100
-
-                        # #print(np.max(specular))
-
-                        # factor = FOV / zs
-                        # xs = xs * factor + SCREEN_WIDTH / 2
-                        # ys = -ys * factor + SCREEN_HEIGHT / 2
-                        # xs = np.round(xs).astype(int)
-                        # ys = np.round(ys).astype(int)
-
-                        # screen_mask = (xs > 0) & (xs < SCREEN_WIDTH) & (
-                        #     ys > 0) & (ys < SCREEN_HEIGHT)
-                        # xs = xs[screen_mask]
-                        # ys = ys[screen_mask]
-                        # zs = zs[screen_mask]
-                        # diffuse = diffuse[screen_mask] + specular[screen_mask]
-
-                        # r = plane * 2 - 1
-                        # r = r / np.linalg.norm(r)
-
-                        # coeff = 8
-                        # for i in range(coeff):
-                        #     for j in range(coeff):
-                        #         xxs = np.clip(xs + i - coeff // 2,
-                        #                       0, SCREEN_WIDTH - 1)
-                        #         yys = np.clip(
-                        #             SCREEN_HEIGHT - ys - j + coeff // 2, 0, SCREEN_HEIGHT - 1)
-                        #         draw_buffer[xxs, yys] = diffuse
 
                 if keys[pygame.K_r]:
                     self.current_mode = Mode.ROTATING
