@@ -1,0 +1,1 @@
+sudo py-spy record -o profile.svg -- /opt/homebrew/Caskroom/miniforge/base/envs/bublebee/bin/python3 bumblebee_flight.py
