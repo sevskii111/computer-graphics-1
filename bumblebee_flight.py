@@ -765,8 +765,8 @@ class Simulation():
         self._objects.append(Cube())
 
     def run(self):
-        a = 1
-        d = 3
+        a = 1.5
+        d = 1
         point_lights = [
             # PointLight(Point3D(1000, 1000, 0), [0, 1, 0]),
             # PointLight(Point3D(-1000, 1000, 0), [0, 0, 1]),
@@ -796,16 +796,20 @@ class Simulation():
 
 
         while True:
-            pygame.mouse.set_pos([SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2]) 
             self.clock.tick(FPS)
             events = pygame.event.get()
             keys = pygame.key.get_pressed()
             if self.prev_keys is None:
                 self.prev_keys = keys
 
-            mouse_move = pygame.mouse.get_rel()
 
-            if max(mouse_move) < 10:
+            if pygame.key.get_mods() > 0:
+                mouse_move = (0, 0)
+            else:
+                mouse_move = pygame.mouse.get_rel()
+                pygame.mouse.set_pos([SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2]) 
+
+            if np.max(np.abs(np.array(mouse_move))) < 100:
                 self.camera_angles += np.array([mouse_move[1], -mouse_move[0], 0]) * 1 * (1 / FPS)
 
             mouse_click = False
@@ -881,48 +885,52 @@ class Simulation():
                 if new_selected_obj:
                     self.selected_object = new_selected_obj[1]
 
-                if self.selected_object:
+
+                objs = [self.selected_object] if self.selected_object is not None else self._objects
+                for obj in objs:
                     if keys[pygame.K_t]:
-                        self.selected_object.rotate_cube(Direction.UP, ROTATION_SPEED)
+                        obj.rotate_cube(Direction.UP, ROTATION_SPEED)
                     elif keys[pygame.K_g]:
-                        self.selected_object.rotate_cube(Direction.DOWN, ROTATION_SPEED)
+                        obj.rotate_cube(Direction.DOWN, ROTATION_SPEED)
                     elif keys[pygame.K_h]:
-                        self.selected_object.rotate_cube(Direction.LEFT, ROTATION_SPEED)
+                        obj.rotate_cube(Direction.LEFT, ROTATION_SPEED)
                     elif keys[pygame.K_f]:
-                        self.selected_object.rotate_cube(Direction.RIGHT, ROTATION_SPEED)
+                        obj.rotate_cube(Direction.RIGHT, ROTATION_SPEED)
                     elif keys[pygame.K_r]:
-                        self.selected_object.rotate_cube(Direction.FORWARD, ROTATION_SPEED)
+                        obj.rotate_cube(Direction.FORWARD, ROTATION_SPEED)
                     elif keys[pygame.K_y]:
-                        self.selected_object.rotate_cube(Direction.BACKWARDS, ROTATION_SPEED)
+                        obj.rotate_cube(Direction.BACKWARDS, ROTATION_SPEED)
                     if keys[pygame.K_k]:
-                        self.selected_object.translate_cube(0, 0, MOVE_SPEED)
+                        obj.translate_cube(0, 0, MOVE_SPEED)
                     elif keys[pygame.K_i]:
-                        self.selected_object.translate_cube(0, 0, -MOVE_SPEED)
+                        obj.translate_cube(0, 0, -MOVE_SPEED)
                     elif keys[pygame.K_l]:
-                        self.selected_object.translate_cube(MOVE_SPEED, 0, 0)
+                        obj.translate_cube(MOVE_SPEED, 0, 0)
                     elif keys[pygame.K_j]:
-                        self.selected_object.translate_cube(-MOVE_SPEED, 0, 0)
+                        obj.translate_cube(-MOVE_SPEED, 0, 0)
                     elif keys[pygame.K_u]:
-                        self.selected_object.translate_cube(0, MOVE_SPEED, 0)
+                        obj.translate_cube(0, MOVE_SPEED, 0)
                     elif keys[pygame.K_o]:
-                        self.selected_object.translate_cube(0, -MOVE_SPEED, 0)
+                        obj.translate_cube(0, -MOVE_SPEED, 0)
 
                     if keys[pygame.K_z]:
-                        self.selected_object.color = np.array([1, 1, 1])
+                        obj.color = np.array([1, 1, 1])
                     elif keys[pygame.K_x]:
-                        self.selected_object.color = np.array([0, 0, 1])
+                        obj.color = np.array([0, 0, 1])
                     elif keys[pygame.K_c]:
-                        self.selected_object.color = np.array([0, 1, 0])
+                        obj.color = np.array([0, 1, 0])
                     elif keys[pygame.K_v]:
-                        self.selected_object.color = np.array([1, 0, 0])
+                        obj.color = np.array([1, 0, 0])
                     elif keys[pygame.K_b]:
-                        self.selected_object.color = np.array([0, 1, 1])
+                        obj.color = np.array([0, 1, 1])
                     elif keys[pygame.K_n]:
-                        self.selected_object.color = np.array([1, 0, 1])
+                        obj.color = np.array([1, 0, 1])
                     elif keys[pygame.K_m]:
-                        self.selected_object.color = np.array([1, 1, 0])
+                        obj.color = np.array([1, 1, 0])
                     elif keys[pygame.K_COMMA] and not self.prev_keys[pygame.K_COMMA]:
-                        self.selected_object.color = np.random.random(3)
+                        obj.color = np.random.random(3)
+                    elif keys[pygame.K_PERIOD]:
+                        obj.color = np.array([0, 0, 0])
 
             if keys[pygame.K_LCTRL]:
                 self.selected_object = None
@@ -946,17 +954,17 @@ class Simulation():
             top = Point3D(0, -MOVE_SPEED, 0).rotate_xy(*-self.camera_angles).to_arr()
 
             if keys[pygame.K_w]:
-                self.camera_pos += forward * 2
+                self.camera_pos += forward * 5
             if keys[pygame.K_s]:
-                self.camera_pos -= forward * 2
+                self.camera_pos -= forward * 5
             if keys[pygame.K_d]:
-                self.camera_pos += right * 2
+                self.camera_pos += right * 5
             if keys[pygame.K_a]:
-                self.camera_pos -= right * 2
+                self.camera_pos -= right * 5
             if keys[pygame.K_q]:
-                self.camera_pos += top * 2
+                self.camera_pos += top * 5
             if keys[pygame.K_e]:
-                self.camera_pos -= top * 2
+                self.camera_pos -= top * 5
 
             surf = pygame.surfarray.make_surface(draw_buffer)
             self.screen.blit(surf, (0, 0))
