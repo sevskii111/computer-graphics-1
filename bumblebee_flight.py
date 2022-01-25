@@ -186,7 +186,7 @@ class PointLight():
         return np.array([*self.point.to_arr(), *self.color])
 
 
-#@jit(nopython=True, fastmath=True)
+@jit(nopython=True, fastmath=True)
 def get_c_and_norm(faces, vertices, return_planes=False):
     normals = np.zeros((faces.shape[0], 4 if return_planes else 3))
     centers = np.zeros((faces.shape[0], 3))
@@ -208,7 +208,7 @@ def get_c_and_norm(faces, vertices, return_planes=False):
 
     return centers, normals
 
-#@jit(nopython=True, fastmath=True)
+@jit(nopython=True, fastmath=True)
 def lambert_lighting(faces, vertices, point_lights, color):
     intensities = np.zeros((len(faces), 3))
     centers, normals = get_c_and_norm(faces, vertices)
@@ -223,7 +223,7 @@ def lambert_lighting(faces, vertices, point_lights, color):
             intensities[i] += color * light_color * intensity_coef
     return np.minimum(intensities, 1)
 
-#@jit(nopython=True, fastmath=True)
+@jit(nopython=True, fastmath=True)
 def gouraud_lighting(faces, vertices, vertices_faces, point_lights, color):
     intensities = np.zeros((len(vertices), 3))
     _, faces_normals = get_c_and_norm(faces, vertices)
@@ -426,7 +426,7 @@ class Cube():
 
         return np.array(centers), np.array(normals)
 
-#@jit(nopython=True, fastmath=True)
+@jit(nopython=True, fastmath=True)
 def bilinear_interpolation(x: np.number, y:np.number, x1: np.number, y1: np.number, q1: np.number, x2: np.number, y2: np.number, q2: np.number, x3: np.number, y3: np.number, q3: np.number):
     w1 = ((y2 - y3) * (x - x3) + (x3 - x2) * (y - y3)) / \
         ((y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3))
@@ -442,89 +442,120 @@ def bilinear_interpolation(x: np.number, y:np.number, x1: np.number, y1: np.numb
     
     return np.outer(q1, w1) + np.outer(q2, w2) + np.outer(q3, w3)
 
-#@jit(nopython=True, fastmath=True)
+@jit(nopython=True, fastmath=True)
 def area(x1: np.number, y1: np.number, x2: np.number, y2: np.number, x3: np.number, y3: np.number):
     return np.abs((x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2)) / 2.0)
 
-#@jit(nopython=True, fastmath=True)
-def is_inside_triangle(x: np.number, y: np.number, x1: np.number, y1: np.number, x2: np.number, y2: np.number, x3: np.number, y3: np.number):
-    EPS = 1e-9
+@jit(nopython=True, fastmath=True, error_model="numpy")
+def simple_is_inside_triangle(x: np.number, y: np.number, x1: np.number, y1: np.number, x2: np.number, y2: np.number, x3: np.number, y3: np.number):
+    EPS = 1e-6
     
     A_123 = area(x1, y1, x2, y2, x3, y3)
     A1 = area(x, y, x2, y2, x3, y3)
     A2 = area(x1, y1, x, y, x3, y3)
     A3 = area(x1, y1, x2, y2, x, y)
+    mask = np.abs((A1 + A2 + A3) - A_123) < EPS
+    return mask, A1 / A_123, A2 / A_123, A3 / A_123
 
+@jit(nopython=True, fastmath=True, error_model="numpy")
+def is_inside_triangle(x: np.number, y: np.number, x1: np.number, y1: np.number, x2: np.number, y2: np.number, x3: np.number, y3: np.number):
+    EPS = 1e-6
+    
+    A_123 = area(x1, y1, x2, y2, x3, y3)
+    A1 = area(x, y, x2, y2, x3, y3)
+    A2 = area(x1, y1, x, y, x3, y3)
+    A3 = area(x1, y1, x2, y2, x, y)
     mask = np.abs((A1 + A2 + A3) - A_123) < EPS
 
-    L = np.zeros((3, 2))
-    A = np.array([x1, y1])
-    B = np.array([x2, y2])
-    C = np.array([x3, y3])
-    L[0] = A
-    L[1] = B
-    L[2] = C
-    
-    P = np.zeros((2, x.shape[0]))
-    P[0] = x
-    P[1] = y
+    if False:
+        mask_inds = np.where(mask)[0]
 
-    QR_A, QR_B, QR_C = 0, -1, y
+        L = np.zeros((3, 2))
+        A = np.array([x1, y1])
+        B = np.array([x2, y2])
+        C = np.array([x3, y3])
+        L[0] = A
+        L[1] = B
+        L[2] = C
+        
+        P = np.zeros((2, x.shape[0]))
+        P[0] = x
+        P[1] = y
 
-
-    LP = np.zeros((3, 3))
-    AB_A, AB_B, AB_C = (y1 - y2), (x2 - x1), (x1 * y2 - x2 * y1)
-    BC_A, BC_B, BC_C = (y2 - y3), (x3 - x2), (x2 * y3 - x3 * y2)
-    CA_A, CA_B, CA_C = (y3 - y1), (x1 - x3), (x3 * y1 - x1 * y3)
-    LP[0] = [AB_A, AB_B, AB_C]
-    LP[1] = [BC_A, BC_B, BC_C]
-    LP[2] = [CA_A, CA_B, CA_C]
-
-    I = np.zeros((3, 2, y.shape[0]))
-    I[0,0] = (QR_B * AB_C - AB_B * QR_C) / (QR_A * AB_B - AB_A * QR_B)
-    I[0,1] = (QR_C * AB_A - AB_C * QR_A) / (QR_A * AB_B - AB_A * QR_B)
-    I[1,0] = (QR_B * BC_C - BC_B * QR_C) / (QR_A * BC_B - BC_A * QR_B)
-    I[1,1] = (QR_C * BC_A - BC_C * QR_A) / (QR_A * BC_B - BC_A * QR_B)
-    I[2,0] = (QR_B * CA_C - CA_B * QR_C) / (QR_A * CA_B - CA_A * QR_B)
-    I[2,1] = (QR_C * CA_A - CA_C * QR_A) / (QR_A * CA_B - CA_A * QR_B)
+        QR_A, QR_B, QR_C = 0, -1, y
 
 
-    d = (P[0] - I[:, 0, :])
-    l = np.where((d[0] <= -EPS) & ~((d[1] <= -EPS) & (d[1] >= d[0])), 0, 1)
-    l = np.where((d[l, np.arange(len(l))] <= -EPS) & ~((d[2] <= -EPS) & (d[2] >= d[l, np.arange(len(l))])), l, 2)
+        LP = np.zeros((3, 3))
+        AB_A, AB_B, AB_C = (y1 - y2), (x2 - x1), (x1 * y2 - x2 * y1)
+        BC_A, BC_B, BC_C = (y2 - y3), (x3 - x2), (x2 * y3 - x3 * y2)
+        CA_A, CA_B, CA_C = (y3 - y1), (x1 - x3), (x3 * y1 - x1 * y3)
+        LP[0] = [AB_A, AB_B, AB_C]
+        LP[1] = [BC_A, BC_B, BC_C]
+        LP[2] = [CA_A, CA_B, CA_C]
 
-    r = np.where((d[0] >= EPS) & ~((d[1] >= EPS) & (d[1] <= d[0])), 0, 1)
-    r = np.where((d[r, np.arange(len(r))] >= EPS) & ~((d[2] >= 0) & (d[2] <= d[r, np.arange(len(r))])), r, 2)
-    Q = np.zeros((2, y.shape[0]))
-    Q[0] = I[l, 0, np.arange(len(l))]
-    Q[1] = I[l, 1, np.arange(len(l))]
-    
-    R = np.zeros((2, y.shape[0]))
-    R[0] = I[r, 0, np.arange(len(r))]
-    R[1] = I[r, 1, np.arange(len(r))]
+        I = np.zeros((3, 2, y.shape[0]))
+        I[0,0] = (QR_B * AB_C - AB_B * QR_C) / (QR_A * AB_B - AB_A * QR_B)
+        I[0,1] = (QR_C * AB_A - AB_C * QR_A) / (QR_A * AB_B - AB_A * QR_B)
+        I[1,0] = (QR_B * BC_C - BC_B * QR_C) / (QR_A * BC_B - BC_A * QR_B)
+        I[1,1] = (QR_C * BC_A - BC_C * QR_A) / (QR_A * BC_B - BC_A * QR_B)
+        I[2,0] = (QR_B * CA_C - CA_B * QR_C) / (QR_A * CA_B - CA_A * QR_B)
+        I[2,1] = (QR_C * CA_A - CA_C * QR_A) / (QR_A * CA_B - CA_A * QR_B)
 
 
-    def norm(p1, p2):
-        return np.sqrt(np.sum((p1 - p2) ** 2, axis=-1))
+        d = (P[0] - I[:, 0, :])
+        l = np.zeros(len(y), dtype=np.int32)
+        for i in mask_inds:
+            m = -1
+            for j in range(3):
+                if d[j, i] <= -EPS and (m == -1 or d[j, i] > d[m, i]):
+                    m = j
+            l[i] = m
 
-    u = 1 - norm(L[l], Q.T) / norm(L[l], L[(l + 1) % 3])
-    w = 1 - norm(L[r], R.T) / norm(L[r], L[(r + 1) % 3])    
-    t = 1 - norm(Q.T, P.T) / norm(Q.T, R.T)
+        r = np.zeros(len(y), dtype=np.int32)
+        for i in mask_inds:
+            m = -1
+            for j in range(3):
+                if d[j, i] >= -EPS and (m == -1 or d[j, i] < d[m, i]):
+                    m = j
+            r[i] = m
 
-    W = np.zeros((3, len(x)))
-    W[(l) % 3, np.arange(len(l))] += u * t
-    W[(l + 1) % 3, np.arange(len(l))] += (1 - u) * t
-    W[(r) % 3, np.arange(len(r))] += w * (1 - t)
-    W[(r + 1) % 3, np.arange(len(r))] += (1 - w) * (1 - t)
-    WA = W[0]
-    WB = W[1]
-    WC = W[2]
+        Q = np.zeros((2, y.shape[0]))
+        for i in mask_inds:
+            Q[:, i] = I[l[i], :, i]
+        
+        R = np.zeros((2, y.shape[0]))
+        for i in mask_inds:
+            R[:, i] = I[r[i], :, i]
 
-    
-    return mask, WA, WB, WC
-    #return np.abs((A1 + A2 + A3) - A_123) < 1e-9, A1 / A_123, A2 / A_123, A3 / A_123
 
-#@jit(nopython=True, fastmath=True)
+        def norm(p1, p2):
+            return np.sqrt(np.sum((p1 - p2) ** 2, axis=-1))
+
+        u = np.zeros(len(l))
+        w = np.zeros(len(l))
+        t = np.zeros(len(l))
+        for i in mask_inds:
+            u[i] = 1 - norm(L[l[i]], Q.T[i]) / norm(L[l[i]], L[(l[i] + 1) % 3])
+            w[i] = 1 - norm(L[r[i]], R.T[i]) / norm(L[r[i]], L[(r[i] + 1) % 3])
+            t[i] = 1 - norm(Q.T[i], P.T[i]) / norm(Q.T[i], R.T[i])
+
+        W = np.zeros((3, len(x)))
+        for i in mask_inds:
+            W[l[i], i] += u[i] * t[i]
+            W[(l[i] + 1) % 3, i] += (1 - u[i]) * t[i]
+            W[r[i], i] += w[i] * (1 - t[i])
+            W[(r[i] + 1) % 3, i] += (1 - w[i]) * (1 - t[i])
+
+        WA = W[0]
+        WB = W[1]
+        WC = W[2]
+
+        
+        return mask, WA, WB, WC
+    else:
+        return mask, A1 / A_123, A2 / A_123, A3 / A_123
+
+@jit(nopython=True, fastmath=True)
 def get_triangle_points(x1: np.number, y1: np.number, x2: np.number, y2:np.number, x3: np.number, y3: np.number):
     xs = np.array([x1, x2, x3], dtype=np.int32)
     ys = np.array([y1, y2, y3], dtype=np.int32)
@@ -573,13 +604,13 @@ def get_triangle_points(x1: np.number, y1: np.number, x2: np.number, y2:np.numbe
 
     return X, Y, W
 
-#@jit(nopython=True, fastmath=True)
+@jit(nopython=True, fastmath=True)
 def screen_space(draw_buffer, x, y):
     mask = (x >= 0) & (y >= 0) & (x < draw_buffer.shape[0]) & (y < draw_buffer.shape[1])
     return mask
 
 
-#@jit(nopython=True, fastmath=True)
+@jit(nopython=True, fastmath=True)
 def draw_wireframe(draw_buffer, z_buffer, triangle, color, force_z=False):
     for i in range(len(triangle)):
         x1, y1, z1, _v1 = triangle[i]
@@ -603,7 +634,7 @@ def draw_wireframe(draw_buffer, z_buffer, triangle, color, force_z=False):
                 z_buffer[_x, _y] = _z
             #draw_buffer[_x, _y] = color
 
-#@jit(nopython=True, fastmath=True)
+@jit(nopython=True, fastmath=True)
 def draw_lumbert(draw_buffer, z_buffer, triangle, color):
     XYW = get_triangle_points(triangle[0, 0], triangle[0,1], triangle[1,0], triangle[1,1], triangle[2,0], triangle[2,1])
     if XYW is not None and len(XYW[0]) > 0:
@@ -615,7 +646,7 @@ def draw_lumbert(draw_buffer, z_buffer, triangle, color):
                 draw_buffer[_x, _y] = color
                 z_buffer[_x, _y] = _z
 
-#@jit(nopython=True, fastmath=True)
+@jit(nopython=True, fastmath=True)
 def draw_gouraud(draw_buffer, z_buffer, triangle, colors):
     XYW = get_triangle_points(triangle[0, 0], triangle[0,1], triangle[1,0], triangle[1,1], triangle[2,0], triangle[2,1])
     if XYW is not None and len(XYW[0]) > 0:
@@ -629,7 +660,7 @@ def draw_gouraud(draw_buffer, z_buffer, triangle, colors):
                 draw_buffer[_x, _y] = _c
                 z_buffer[_x, _y] = _z
 
-#@jit(nopython=True, fastmath=True)
+@jit(nopython=True, fastmath=True)
 def draw_phong(draw_buffer, z_buffer, triangle, plane, other_planes, lights):
     #1 / 1.2246832243
     phong_coeff = FOCAL_LENGTH / SCREEN_WIDTH 
@@ -745,7 +776,7 @@ def draw_phong(draw_buffer, z_buffer, triangle, plane, other_planes, lights):
             z_buffer[_x, _y] = _z
 
 
-#@jit(nopython=True, fastmath=True)
+@jit(nopython=True, fastmath=True)
 def draw_phong2(draw_buffer, z_buffer, triangle, plane, color, lights):
     XYW = get_triangle_points(triangle[0, 0], triangle[0,1], triangle[1,0], triangle[1,1], triangle[2,0], triangle[2,1])
     if XYW is not None and len(XYW[0]) > 0:
@@ -841,9 +872,9 @@ class Simulation():
             # PointLight(Point3D(1000, 1000, 0), [0, 1, 0]),
             # PointLight(Point3D(-1000, 1000, 0), [0, 0, 1]),
             # PointLight(Point3D(0, -1000, 0), [1, 0, 0]),
-            # PointLight(Point3D(0, a, d), np.array([1, 0, 0])),
-            # PointLight(Point3D(-a / 2, -np.sqrt(3) / 2 * a, d), np.array([0, 1, 0])),
-            # PointLight(Point3D(a / 2, -np.sqrt(3) / 2 * a, d), np.array([0, 0, 1])),
+            PointLight(Point3D(0, a, d), np.array([1, 0, 0])),
+            PointLight(Point3D(-a / 2, -np.sqrt(3) / 2 * a, d), np.array([0, 1, 0])),
+            PointLight(Point3D(a / 2, -np.sqrt(3) / 2 * a, d), np.array([0, 0, 1])),
 
             #PointLight(Point3D(0, a, d), [1, 0, 0]),
             # PointLight(Point3D(-a / 2, -np.sqrt(3) / 2 * a, d), [0, 1, 0]),
@@ -852,20 +883,21 @@ class Simulation():
             # PointLight(Point3D(a / 2, np.sqrt(3) / 2 * a, d), [0, 0, 1]),
 
             #PointLight(Point3D(1, 1, 10), [1, 1, 1])
-            PointLight(Point3D(0, 0, -1000), [1, 1, 1])
+            #PointLight(Point3D(0, 0, -1000), [1, 1, 1])
             ]
         
 
-        # SIZE = 1
-        # for i in range(-SIZE, SIZE + 1):
-        #     for j in range(-SIZE, SIZE + 1):
-        #         cube = Cube()
-        #         cube.translate_cube(i * 2, j * 2, 5)
-        #         self._objects.append(cube)
+        SIZE = 1
+        for i in range(-SIZE, SIZE + 1):
+            for j in range(-SIZE, SIZE + 1):
+                cube = Cube()
+                cube.translate_cube(i * 2, j * 2, 5)
+                #cube.rotate_cube(Direction.DOWN, 15)
+                self._objects.append(cube)
         
-        cube = Cube()
-        cube.translate_cube(0, 0, 10)
-        self._objects.append(cube)
+        # cube = Cube()
+        # cube.translate_cube(0, 0, 5)
+        # self._objects.append(cube)
 
 
 
@@ -907,7 +939,7 @@ class Simulation():
                 for polygon in triangles:
                     triangle = polygon[0]
                     draw_lumbert(draw_buffer, z_buffer, triangle, np.array(light.color) * 255)
-                    if mouse_click and is_inside_triangle(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, *triangle[:, :2].reshape(-1))[0]:
+                    if mouse_click and simple_is_inside_triangle(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, *triangle[:, :2].reshape(-1))[0]:
                         a, b, c, d = normals[face_ind]
                         t = d / c
                         if t > 0 and (new_selected_obj is None or new_selected_obj[0] > t):
@@ -946,7 +978,7 @@ class Simulation():
                         else:
                             draw_phong(draw_buffer, z_buffer, triangle, normals[face_ind], normals[np.arange(len(normals)) != face_ind], lights)
 
-                    if mouse_click and is_inside_triangle(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, *triangle[:, :2].reshape(-1))[0]:
+                    if mouse_click and simple_is_inside_triangle(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, *triangle[:, :2].reshape(-1))[0]:
                         a, b, c, d = normals[face_ind]
                         t = d / c
                         if t > 0 and (new_selected_obj is None or new_selected_obj[0] > t):
